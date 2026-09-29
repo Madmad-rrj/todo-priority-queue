@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TODO Stack Web App</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <h1>TODO APP</h1>
+      </header>
+
+      <div class="layout">
+        <aside class="sidebar" aria-label="Main navigation">
+          <button class="nav-item active" data-page="TODO" type="button">TODO</button>
+          <button class="nav-item" data-page="COMPLETED" type="button">COMPLETED</button>
+          <button class="nav-item" data-page="TRASH" type="button">TRASH</button>
+        </aside>
+
+        <main class="page-panel">
+          <section id="page-todo" class="page active" aria-label="TODO page">
+            <div class="page-header">TODO</div>
+
+            <div class="composer">
+              <input
+                id="quick-task-input"
+                type="text"
+                maxlength="200"
+                placeholder="Add a new task..."
+                aria-label="Task content"
+              />
+              <button id="quick-add-button" class="primary-button" type="button" aria-label="Open add task form">+</button>
+            </div>
+
+            <div class="filters" aria-label="TODO filters">
+              <div class="filter-row">
+                <label>
+                  <span>Filter:</span>
+                  <select id="filter-age">
+                    <option value="all">All</option>
+                    <option value="under-2d">&lt;2d</option>
+                    <option value="2-4d">2-4d</option>
+                    <option value="4-6d">4-6d</option>
+                    <option value="over-6d">&gt;6d</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="filter-row">
+                <label>
+                  <span>Date:</span>
+                  <select id="filter-date">
+                    <option value="all">All</option>
+                    <option value="today">Today</option>
+                    <option value="this-week">This week</option>
+                    <option value="older">Older</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="filter-row">
+                <label>
+                  <span>Star:</span>
+                  <select id="filter-star">
+                    <option value="all">All</option>
+                    <option value="starred">Starred</option>
+                    <option value="unstarred">Unstarred</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="filter-row sort-row">
+                <label>
+                  <span>Sort:</span>
+                  <select id="filter-sort">
+                    <option value="priority">Priority order</option>
+                    <option value="newest">Newest</option>
+                    <option value="oldest">Oldest</option>
+                  </select>
+                </label>
+              </div>
+
+              <button id="organize-button" type="button" class="secondary-button small-button">☰ Organize</button>
+              <button id="clear-filters" type="button" class="secondary-button small-button">Clear filters</button>
+            </div>
+
+            <div id="todo-page-list" class="task-stack" aria-live="polite"></div>
+          </section>
+
+          <section id="page-completed" class="page" aria-label="Completed page">
+            <div class="page-header">COMPLETED</div>
+            <div id="completed-page-list" class="task-stack" aria-live="polite"></div>
+          </section>
+
+          <section id="page-trash" class="page" aria-label="Trash page">
+            <div class="page-header">TRASH</div>
+            <div id="trash-page-list" class="task-stack" aria-live="polite"></div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <div id="task-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <h2 id="modal-title">Add Task</h2>
+        <form id="task-form" class="modal-form">
+          <label>
+            <span>Content</span>
+            <textarea id="modal-content" rows="4" required></textarea>
+          </label>
+
+          <label>
+            <span>Priority position (optional)</span>
+            <input id="modal-priority-order" type="number" min="1" step="1" placeholder="Append to end" />
+          </label>
+
+          <label>
+            <span>Created date</span>
+            <input id="modal-created-at" type="datetime-local" />
+          </label>
+
+          <label class="checkbox-label">
+            <input id="modal-starred" type="checkbox" />
+            <span>☆ Starred</span>
+          </label>
+
+          <div class="modal-actions">
+            <button id="cancel-task" class="secondary-button" type="button">Cancel</button>
+            <button id="submit-task" class="primary-button modal-submit" type="submit">Create Task</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div id="organizer-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-panel organizer-panel" role="dialog" aria-modal="true" aria-labelledby="organizer-title">
+        <h2 id="organizer-title">PRIORITY ORDER</h2>
+        <div id="organizer-list" class="organizer-list"></div>
+        <div class="modal-actions">
+          <button id="close-organizer" class="secondary-button" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
