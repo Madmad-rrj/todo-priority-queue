@@ -1,6 +1,7 @@
 const STORAGE_KEY = 'todo-stack-web-app-v1';
 const THEME_STORAGE_KEY = 'todo-stack-theme';
 const COLOR_STYLE_STORAGE_KEY = 'todo-task-color-style';
+const ELAPSED_UPDATE_INTERVAL = 60000;
 const STATUS = { TODO: 'TODO', COMPLETED: 'COMPLETED', DELETED: 'DELETED' };
 
 const defaultTasks = [
@@ -271,6 +272,7 @@ function render() {
   if (!organizerModal.classList.contains('hidden')) renderOrganizer();
   updateFilterControls();
   updateColorStyle();
+  updateRenderedTaskAges();
   if (state.pendingDragFocus) {
     const taskId = state.pendingDragFocus;
     state.pendingDragFocus = null;
@@ -278,16 +280,81 @@ function render() {
       document.querySelector(`[data-drag-handle="${taskId}"]`)?.focus({ preventScroll: true });
     });
   }
+}
 
-  function updateColorStyle() {
-    document.documentElement.dataset.colorStyle = state.colorStyle;
-    document.querySelectorAll('input[name="task-color-style"]').forEach((input) => {
-      input.checked = input.value === state.colorStyle;
-    });
-    if (settingsPreview) {
-      settingsPreview.classList.toggle('color-dot', state.colorStyle === 'dot');
-      settingsPreview.classList.toggle('color-full', state.colorStyle === 'full');
+function calculateElapsedLabel(createdAt, now = Date.now()) {
+  const timestamp = Number(createdAt);
+  if (!Number.isFinite(timestamp)) return 'unknown';
+
+  const elapsedMinutes = Math.max(0, Math.floor((now - timestamp) / 60000));
+  if (elapsedMinutes < 1) return 'just now';
+  if (elapsedMinutes < 60) return `${elapsedMinutes} minute${elapsedMinutes === 1 ? '' : 's'}`;
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) return `${elapsedHours} hour${elapsedHours === 1 ? '' : 's'}`;
+
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  if (elapsedDays < 7) return `${elapsedDays} day${elapsedDays === 1 ? '' : 's'}`;
+
+  const elapsedWeeks = Math.floor(elapsedDays / 7);
+  if (elapsedDays < 30) return `${elapsedWeeks} week${elapsedWeeks === 1 ? '' : 's'}`;
+
+  const elapsedMonths = Math.floor(elapsedDays / 30);
+  if (elapsedDays < 365) return `${elapsedMonths} month${elapsedMonths === 1 ? '' : 's'}`;
+
+  const elapsedYears = Math.floor(elapsedDays / 365);
+  return `${elapsedYears} year${elapsedYears === 1 ? '' : 's'}`;
+}
+
+function updateRenderedTaskAges() {
+  const now = Date.now();
+  document.querySelectorAll('[data-age-created-at]').forEach((ageElement) => {
+    const createdAt = ageElement.dataset.ageCreatedAt;
+    const nextLabel = calculateElapsedLabel(createdAt, now);
+    if (ageElement.textContent !== nextLabel) {
+      ageElement.textContent = nextLabel;
     }
+
+    const card = ageElement.closest('.task-card');
+    if (!card) return;
+    const nextColor = getAgeColor(createdAt, now);
+    ['green', 'yellow', 'orange', 'red'].forEach((color) => {
+      if (card.classList.contains(color) && color !== nextColor) card.classList.remove(color);
+    });
+    if (!card.classList.contains(nextColor)) card.classList.add(nextColor);
+  });
+}
+
+let elapsedTimerId = null;
+
+function startElapsedTimer() {
+  if (elapsedTimerId !== null || document.hidden) return;
+  elapsedTimerId = window.setInterval(updateRenderedTaskAges, ELAPSED_UPDATE_INTERVAL);
+}
+
+function stopElapsedTimer() {
+  if (elapsedTimerId === null) return;
+  window.clearInterval(elapsedTimerId);
+  elapsedTimerId = null;
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    stopElapsedTimer();
+    return;
+  }
+  updateRenderedTaskAges();
+  startElapsedTimer();
+});
+
+function updateColorStyle() {
+  document.documentElement.dataset.colorStyle = state.colorStyle;
+  document.querySelectorAll('input[name="task-color-style"]').forEach((input) => {
+    input.checked = input.value === state.colorStyle;
+  });
+  if (settingsPreview) {
+    settingsPreview.classList.toggle('color-dot', state.colorStyle === 'dot');
+    settingsPreview.classList.toggle('color-full', state.colorStyle === 'full');
   }
 }
 
@@ -329,7 +396,7 @@ function renderTodoCard(task) {
       <span class="task-dot ${color}"></span>
       <div>
         <div class="task-title">${escapeHtml(task.content)}</div>
-        <div class="task-meta">Age: ${formatAge(task.createdAt)}</div>
+        <div class="task-meta">Age: <span class="age-value" data-age-created-at="${task.createdAt}">${calculateElapsedLabel(task.createdAt)}</span></div>
         <div class="task-meta">Added: ${formatDateTime(task.createdAt)}</div>
       </div>
     </div>
@@ -346,6 +413,7 @@ function renderCompletedCard(task) {
   const color = getAgeColor(task.createdAt);
   return `<article class="task-card completed ${color} color-${state.colorStyle}">
     <div class="task-main"><span class="task-dot complete"></span><div><div class="task-title"><span class="mark">✓</span> ${escapeHtml(task.content)}</div><div class="task-meta">Priority position: ${task.priorityOrder}</div></div></div>
+    <div class="task-meta">Age: <span class="age-value" data-age-created-at="${task.createdAt}">${calculateElapsedLabel(task.createdAt)}</span></div>
     <div class="task-meta">Created: ${formatDateTime(task.createdAt)}</div><div class="task-meta">Completed: ${formatDateTime(task.completedAt || Date.now())}</div>
     <div class="task-actions"><button type="button" class="action-button restore" data-action="restore" data-id="${task.id}">↩ Restore</button><button type="button" class="action-button delete" data-action="delete" data-id="${task.id}">🗑</button></div>
   </article>`;
@@ -354,6 +422,7 @@ function renderTrashCard(task) {
   const color = getAgeColor(task.createdAt);
   return `<article class="task-card deleted ${color} color-${state.colorStyle}">
     <div class="task-main"><span class="task-dot delete"></span><div><div class="task-title"><span class="mark">🗑</span> ${escapeHtml(task.content)}</div><div class="task-meta">Priority position: ${task.priorityOrder}</div></div></div>
+    <div class="task-meta">Age: <span class="age-value" data-age-created-at="${task.createdAt}">${calculateElapsedLabel(task.createdAt)}</span></div>
     <div class="task-meta">Deleted: ${formatDateTime(task.deletedAt || Date.now())}</div>
     <div class="task-actions"><button type="button" class="action-button restore" data-action="restore" data-id="${task.id}">Restore</button><button type="button" class="action-button permanent" data-action="delete-forever" data-id="${task.id}">Delete forever</button></div>
   </article>`;
@@ -522,11 +591,11 @@ function matchesDateFilter(createdAt, filterValue) {
   if (filterValue === 'older') return age > 604800000;
   return true;
 }
-function getAgeColor(createdAt) {
-  const days = getAgeInDays(createdAt);
+function getAgeColor(createdAt, now = Date.now()) {
+  const days = getAgeInDays(createdAt, now);
   return days < 2 ? 'green' : days < 4 ? 'yellow' : days < 6 ? 'orange' : 'red';
 }
-function getAgeInDays(createdAt) { return (Date.now() - Number(createdAt)) / 86400000; }
+function getAgeInDays(createdAt, now = Date.now()) { return (now - Number(createdAt)) / 86400000; }
 function formatAge(createdAt) {
   const hours = Math.floor(Math.max(0, Date.now() - Number(createdAt)) / 3600000);
   if (hours < 1) return 'less than an hour';
@@ -574,4 +643,4 @@ function escapeHtml(value) {
   return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
 render();
-setInterval(render, 60000);
+startElapsedTimer();
