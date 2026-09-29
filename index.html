@@ -11,6 +11,7 @@
     <div class="app-shell">
       <header class="app-header">
         <h1>TODO APP</h1>
+        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch to dark mode">☾ Dark</button>
       </header>
 
       <div class="layout">
@@ -18,6 +19,7 @@
           <button class="nav-item active" data-page="TODO" type="button">TODO</button>
           <button class="nav-item" data-page="COMPLETED" type="button">COMPLETED</button>
           <button class="nav-item" data-page="TRASH" type="button">TRASH</button>
+          <button class="nav-item" data-page="SETTINGS" type="button">SETTINGS</button>
         </aside>
 
         <main class="page-panel">
@@ -32,10 +34,20 @@
                 placeholder="Add a new task..."
                 aria-label="Task content"
               />
-              <button id="quick-add-button" class="primary-button" type="button" aria-label="Open add task form">+</button>
+              <button id="quick-add-button" class="primary-button" type="button" aria-label="Add task">+</button>
+              <button id="advanced-add-button" class="secondary-button" type="button">Advanced add</button>
+            </div>
+
+            <div class="mobile-toolbar">
+              <button id="mobile-filter-button" class="secondary-button" type="button">Filter: All</button>
+              <button id="mobile-organize-button" class="secondary-button" type="button">☰ Organize</button>
             </div>
 
             <div class="filters" aria-label="TODO filters">
+              <div class="mobile-filter-heading">
+                <strong>Filters</strong>
+                <button id="close-mobile-filters" class="secondary-button small-button" type="button">Close</button>
+              </div>
               <div class="filter-row">
                 <label>
                   <span>Filter:</span>
@@ -98,6 +110,31 @@
           <section id="page-trash" class="page" aria-label="Trash page">
             <div class="page-header">TRASH</div>
             <div id="trash-page-list" class="task-stack" aria-live="polite"></div>
+          </section>
+
+          <section id="page-settings" class="page" aria-label="Settings page">
+            <div class="page-header">SETTINGS</div>
+            <div class="settings-card">
+              <h2>Task appearance</h2>
+              <p>Task color style</p>
+              <div class="settings-options" role="radiogroup" aria-label="Task color style">
+                <label class="settings-option">
+                  <input type="radio" name="task-color-style" value="dot" />
+                  <span>● Color dot</span>
+                </label>
+                <label class="settings-option">
+                  <input type="radio" name="task-color-style" value="full" />
+                  <span>○ Full task</span>
+                </label>
+              </div>
+              <div class="settings-preview">
+                <span>Preview</span>
+                <article id="settings-color-preview" class="task-card green color-dot">
+                  <div class="task-title"><span class="task-dot green"></span> Example task</div>
+                  <div class="task-meta">Age: 7 days</div>
+                </article>
+              </div>
+            </div>
           </section>
         </main>
       </div>

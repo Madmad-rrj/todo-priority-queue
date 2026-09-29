@@ -1,4 +1,6 @@
 const STORAGE_KEY = 'todo-stack-web-app-v1';
+const THEME_STORAGE_KEY = 'todo-stack-theme';
+const COLOR_STYLE_STORAGE_KEY = 'todo-task-color-style';
 const STATUS = { TODO: 'TODO', COMPLETED: 'COMPLETED', DELETED: 'DELETED' };
 
 const defaultTasks = [
@@ -16,12 +18,16 @@ const state = {
   editingTaskId: null,
   draggedId: null,
   activeTaskId: null,
+  colorStyle: localStorage.getItem(COLOR_STYLE_STORAGE_KEY) === 'full' ? 'full' : 'dot',
+  pointerDrag: null,
+  pendingDragFocus: null,
 };
 normalizeQueue();
 
 const navButtons = document.querySelectorAll('.nav-item');
 const quickInput = document.getElementById('quick-task-input');
 const quickAddButton = document.getElementById('quick-add-button');
+const advancedAddButton = document.getElementById('advanced-add-button');
 const todoList = document.getElementById('todo-page-list');
 const completedList = document.getElementById('completed-page-list');
 const trashList = document.getElementById('trash-page-list');
@@ -43,18 +49,55 @@ const organizeButton = document.getElementById('organize-button');
 const organizerModal = document.getElementById('organizer-modal');
 const organizerList = document.getElementById('organizer-list');
 const closeOrganizerButton = document.getElementById('close-organizer');
+const mobileFilterButton = document.getElementById('mobile-filter-button');
+const mobileOrganizeButton = document.getElementById('mobile-organize-button');
+const closeMobileFiltersButton = document.getElementById('close-mobile-filters');
+const colorStyleInputs = document.querySelectorAll('input[name="task-color-style"]');
+const settingsPreview = document.getElementById('settings-color-preview');
+const themeToggle = document.getElementById('theme-toggle');
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  themeToggle.textContent = theme === 'dark' ? '☀ Light' : '☾ Dark';
+  themeToggle.setAttribute('aria-label', theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+}
+
+const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+applyTheme(savedTheme === 'dark' ? 'dark' : 'light');
+themeToggle.addEventListener('click', () => {
+  const nextTheme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+  applyTheme(nextTheme);
+});
+
+colorStyleInputs.forEach((input) => {
+  input.checked = input.value === state.colorStyle;
+  input.addEventListener('change', () => {
+    state.colorStyle = input.value;
+    localStorage.setItem(COLOR_STYLE_STORAGE_KEY, state.colorStyle);
+    updateColorStyle();
+  });
+});
 
 navButtons.forEach((button) => button.addEventListener('click', () => {
   state.currentPage = button.dataset.page;
   render();
 }));
 
-quickAddButton.addEventListener('click', () => openTaskModal('add', quickInput.value.trim()));
+quickAddButton.addEventListener('click', quickAddTask);
 quickInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') {
     event.preventDefault();
-    openTaskModal('add', quickInput.value.trim());
+    quickAddTask();
   }
+});
+advancedAddButton.addEventListener('click', () => openTaskModal('add'));
+mobileFilterButton.addEventListener('click', () => {
+  document.querySelector('.filters').classList.add('mobile-open');
+});
+mobileOrganizeButton.addEventListener('click', openOrganizer);
+closeMobileFiltersButton.addEventListener('click', () => {
+  document.querySelector('.filters').classList.remove('mobile-open');
 });
 cancelButton.addEventListener('click', closeTaskModal);
 modal.addEventListener('click', (event) => { if (event.target === modal) closeTaskModal(); });
@@ -68,30 +111,67 @@ modalForm.addEventListener('submit', (event) => {
   if (!content) return modalContent.focus();
   const task = state.modalMode === 'edit'
     ? state.tasks.find((item) => item.id === state.editingTaskId)
-    : { id: createId(), status: STATUS.TODO, completedAt: null, deletedAt: null };
-  if (!task) return closeTaskModal();
+    : null;
+  if (state.modalMode === 'edit' && !task) return closeTaskModal();
 
-  task.content = content;
-  task.createdAt = parseDateTimeLocal(modalCreatedAt.value);
-  task.isStarred = modalStarred.checked;
+  const createdAt = parseDateTimeLocal(modalCreatedAt.value);
   const requestedPosition = parsePosition(modalPriorityOrder.value);
 
   if (state.modalMode === 'add') {
-    const queue = getTodoQueue();
-    task.priorityOrder = queue.length + 1;
-    state.tasks.push(task);
-    insertAtPosition(task.id, requestedPosition);
+    createTask(content, {
+      createdAt,
+      isStarred: modalStarred.checked,
+      priorityOrder: requestedPosition,
+    });
   } else {
+    task.content = content;
+    task.createdAt = createdAt;
+    task.isStarred = modalStarred.checked;
     const currentPosition = task.priorityOrder;
     if (requestedPosition) insertAtPosition(task.id, requestedPosition);
     else task.priorityOrder = currentPosition;
+    normalizeQueue();
+    saveTasks();
   }
 
-  normalizeQueue();
-  saveTasks();
   closeTaskModal();
   render();
 });
+
+function quickAddTask() {
+  const content = quickInput.value.trim();
+  if (!content) {
+    quickInput.focus();
+    return;
+  }
+
+  createTask(content);
+  quickInput.value = '';
+  state.currentPage = 'TODO';
+  render();
+  quickInput.focus();
+}
+
+function createTask(content, { createdAt = Date.now(), isStarred = false, priorityOrder = null } = {}) {
+  const task = {
+    id: createId(),
+    content: content.trim(),
+    createdAt,
+    status: STATUS.TODO,
+    completedAt: null,
+    deletedAt: null,
+    priorityOrder: getTodoQueue().length + 1,
+    isStarred,
+  };
+
+  state.tasks.push(task);
+  if (priorityOrder) {
+    insertAtPosition(task.id, priorityOrder);
+  }
+  normalizeQueue();
+  saveTasks();
+  return task;
+}
 
 filterAge.addEventListener('change', (event) => { state.filters.age = event.target.value; render(); });
 filterDate.addEventListener('change', (event) => { state.filters.date = event.target.value; render(); });
@@ -105,6 +185,23 @@ clearFiltersButton.addEventListener('click', () => {
   filterSort.value = 'priority';
   render();
 });
+
+function hasActiveFilters() {
+  return state.filters.age !== 'all'
+    || state.filters.date !== 'all'
+    || state.filters.star !== 'all'
+    || state.filters.sort !== 'priority';
+}
+
+function updateFilterControls() {
+  clearFiltersButton.hidden = !hasActiveFilters();
+  const labels = [];
+  if (state.filters.age !== 'all') labels.push(filterAge.options[filterAge.selectedIndex].text);
+  if (state.filters.date !== 'all') labels.push(filterDate.options[filterDate.selectedIndex].text);
+  if (state.filters.star !== 'all') labels.push(filterStar.options[filterStar.selectedIndex].text);
+  if (state.filters.sort !== 'priority') labels.push(filterSort.options[filterSort.selectedIndex].text);
+  mobileFilterButton.textContent = labels.length ? `Filter: ${labels.join(', ')}` : 'Filter: All';
+}
 
 document.addEventListener('click', (event) => {
   const button = event.target.closest('[data-action]');
@@ -172,6 +269,26 @@ function render() {
   renderList(completedList, getCompletedTasks(), renderCompletedCard);
   renderList(trashList, getTrashTasks(), renderTrashCard);
   if (!organizerModal.classList.contains('hidden')) renderOrganizer();
+  updateFilterControls();
+  updateColorStyle();
+  if (state.pendingDragFocus) {
+    const taskId = state.pendingDragFocus;
+    state.pendingDragFocus = null;
+    requestAnimationFrame(() => {
+      document.querySelector(`[data-drag-handle="${taskId}"]`)?.focus({ preventScroll: true });
+    });
+  }
+
+  function updateColorStyle() {
+    document.documentElement.dataset.colorStyle = state.colorStyle;
+    document.querySelectorAll('input[name="task-color-style"]').forEach((input) => {
+      input.checked = input.value === state.colorStyle;
+    });
+    if (settingsPreview) {
+      settingsPreview.classList.toggle('color-dot', state.colorStyle === 'dot');
+      settingsPreview.classList.toggle('color-full', state.colorStyle === 'full');
+    }
+  }
 }
 
 function renderList(target, collection, renderer) {
@@ -204,9 +321,9 @@ function renderTodoCard(task) {
   const queueIndex = getTodoQueue().findIndex((item) => item.id === task.id);
   const canMoveUp = queueIndex > 0;
   const canMoveDown = queueIndex >= 0 && queueIndex < getTodoQueue().length - 1;
-  return `<article class="task-card ${color} ${state.activeTaskId === task.id ? 'active-task' : ''}" draggable="true" data-drag-id="${task.id}">
+  return `<article class="task-card ${color} color-${state.colorStyle} ${state.activeTaskId === task.id ? 'active-task' : ''}" data-drag-id="${task.id}">
     <div class="task-main">
-      <span class="drag-handle" title="Drag to reorder">≡</span>
+      <span class="drag-handle" data-drag-handle="${task.id}" title="Drag to reorder" role="button" tabindex="0" aria-label="Drag ${escapeHtml(task.content)} to reorder">≡</span>
       <input class="position-input" data-priority-input="${task.id}" type="number" min="1" step="1" value="${task.priorityOrder}" aria-label="Priority position">
       <button type="button" class="star-button ${task.isStarred ? 'starred' : ''}" data-action="star" data-id="${task.id}" aria-label="Toggle star">${task.isStarred ? '★' : '☆'}</button>
       <span class="task-dot ${color}"></span>
@@ -226,14 +343,16 @@ function renderTodoCard(task) {
   </article>`;
 }
 function renderCompletedCard(task) {
-  return `<article class="task-card completed">
+  const color = getAgeColor(task.createdAt);
+  return `<article class="task-card completed ${color} color-${state.colorStyle}">
     <div class="task-main"><span class="task-dot complete"></span><div><div class="task-title"><span class="mark">✓</span> ${escapeHtml(task.content)}</div><div class="task-meta">Priority position: ${task.priorityOrder}</div></div></div>
     <div class="task-meta">Created: ${formatDateTime(task.createdAt)}</div><div class="task-meta">Completed: ${formatDateTime(task.completedAt || Date.now())}</div>
     <div class="task-actions"><button type="button" class="action-button restore" data-action="restore" data-id="${task.id}">↩ Restore</button><button type="button" class="action-button delete" data-action="delete" data-id="${task.id}">🗑</button></div>
   </article>`;
 }
 function renderTrashCard(task) {
-  return `<article class="task-card deleted">
+  const color = getAgeColor(task.createdAt);
+  return `<article class="task-card deleted ${color} color-${state.colorStyle}">
     <div class="task-main"><span class="task-dot delete"></span><div><div class="task-title"><span class="mark">🗑</span> ${escapeHtml(task.content)}</div><div class="task-meta">Priority position: ${task.priorityOrder}</div></div></div>
     <div class="task-meta">Deleted: ${formatDateTime(task.deletedAt || Date.now())}</div>
     <div class="task-actions"><button type="button" class="action-button restore" data-action="restore" data-id="${task.id}">Restore</button><button type="button" class="action-button permanent" data-action="delete-forever" data-id="${task.id}">Delete forever</button></div>
@@ -262,34 +381,94 @@ function closeTaskModal() {
 function openOrganizer() {
   organizerModal.classList.remove('hidden');
   organizerModal.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('modal-open');
   renderOrganizer();
 }
 function closeOrganizer() {
   organizerModal.classList.add('hidden');
   organizerModal.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('modal-open');
 }
 function renderOrganizer() {
-  organizerList.innerHTML = getTodoQueue().map((task) => `<div class="organizer-item" draggable="true" data-drag-id="${task.id}"><span class="drag-handle">≡</span><strong>${task.priorityOrder}</strong><span>${task.isStarred ? '★' : '☆'} ${escapeHtml(task.content)}</span></div>`).join('');
+  organizerList.innerHTML = getTodoQueue().map((task) => `<div class="organizer-item" data-drag-id="${task.id}"><span class="drag-handle" data-drag-handle="${task.id}" title="Drag to reorder" role="button" tabindex="0" aria-label="Drag ${escapeHtml(task.content)} to reorder">≡</span><strong>${task.priorityOrder}</strong><span>${task.isStarred ? '★' : '☆'} ${escapeHtml(task.content)}</span></div>`).join('');
   enableDragDrop(organizerList);
 }
 function enableDragDrop(container) {
-  container.querySelectorAll('[data-drag-id]').forEach((item) => {
-    item.addEventListener('dragstart', () => { state.draggedId = item.dataset.dragId; item.classList.add('dragging'); });
-    item.addEventListener('dragend', () => {
-      state.activeTaskId = item.dataset.dragId;
-      item.classList.remove('dragging');
-    });
-    item.addEventListener('dragover', (event) => event.preventDefault());
-    item.addEventListener('drop', (event) => {
-      event.preventDefault();
-      if (state.draggedId && state.draggedId !== item.dataset.dragId) {
-        state.activeTaskId = state.draggedId;
-        reorderByDrop(state.draggedId, item.dataset.dragId);
-        saveTasks();
-        render();
-      }
-    });
+  container.querySelectorAll('[data-drag-handle]').forEach((handle) => {
+    handle.addEventListener('pointerdown', beginPointerDrag);
+    handle.addEventListener('pointermove', continuePointerDrag);
+    handle.addEventListener('pointerup', finishPointerDrag);
+    handle.addEventListener('pointercancel', cancelPointerDrag);
   });
+}
+function beginPointerDrag(event) {
+  if (event.button !== undefined && event.button !== 0) return;
+  const handle = event.currentTarget;
+  const item = handle.closest('[data-drag-id]');
+  if (!item) return;
+  event.preventDefault();
+  handle.setPointerCapture?.(event.pointerId);
+  state.pointerDrag = {
+    pointerId: event.pointerId,
+    handle,
+    item,
+    taskId: item.dataset.dragId,
+    startX: event.clientX,
+    startY: event.clientY,
+    dragging: false,
+    targetId: null,
+  };
+}
+function continuePointerDrag(event) {
+  const drag = state.pointerDrag;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+  const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
+  if (!drag.dragging && distance < 8) return;
+  if (!drag.dragging) {
+    drag.dragging = true;
+    drag.item.classList.add('dragging');
+    state.activeTaskId = drag.taskId;
+  }
+  event.preventDefault();
+  const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-drag-id]');
+  if (!target || target === drag.item || !target.closest('.task-stack, .organizer-list')) {
+    clearDropTarget();
+    drag.targetId = null;
+    return;
+  }
+  clearDropTarget();
+  target.classList.add('drop-target');
+  drag.targetId = target.dataset.dragId;
+}
+function finishPointerDrag(event) {
+  const drag = state.pointerDrag;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+  if (drag.dragging && drag.targetId && drag.targetId !== drag.taskId) {
+    state.activeTaskId = drag.taskId;
+    state.pendingDragFocus = drag.taskId;
+    reorderByDrop(drag.taskId, drag.targetId);
+    saveTasks();
+    releasePointer(drag);
+    render();
+    return;
+  }
+  releasePointer(drag);
+  render();
+}
+function cancelPointerDrag(event) {
+  const drag = state.pointerDrag;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+  releasePointer(drag);
+  render();
+}
+function releasePointer(drag) {
+  drag.handle.releasePointerCapture?.(drag.pointerId);
+  clearDropTarget();
+  drag.item.classList.remove('dragging');
+  state.pointerDrag = null;
+}
+function clearDropTarget() {
+  document.querySelectorAll('.drop-target').forEach((item) => item.classList.remove('drop-target'));
 }
 function reorderByDrop(draggedId, targetId) {
   const queue = getTodoQueue().filter((task) => task.id !== draggedId);
