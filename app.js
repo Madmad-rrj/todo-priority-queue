@@ -15,7 +15,6 @@ const state = {
   modalMode: 'add',
   editingTaskId: null,
   draggedId: null,
-  pendingFocus: null,
   activeTaskId: null,
 };
 normalizeQueue();
@@ -140,18 +139,10 @@ document.addEventListener('click', (event) => {
       task.isStarred = !task.isStarred;
       break;
     case 'move-up':
-      state.pendingFocus = { taskId: task.id, control: 'up' };
-      if (!moveBy(task.id, -1)) {
-        state.pendingFocus = null;
-        return;
-      }
+      moveBy(task.id, -1);
       break;
     case 'move-down':
-      state.pendingFocus = { taskId: task.id, control: 'down' };
-      if (!moveBy(task.id, 1)) {
-        state.pendingFocus = null;
-        return;
-      }
+      moveBy(task.id, 1);
       break;
     default:
       return;
@@ -181,18 +172,6 @@ function render() {
   renderList(completedList, getCompletedTasks(), renderCompletedCard);
   renderList(trashList, getTrashTasks(), renderTrashCard);
   if (!organizerModal.classList.contains('hidden')) renderOrganizer();
-  restorePendingFocus();
-}
-
-function restorePendingFocus() {
-  if (!state.pendingFocus) return;
-  const { taskId, control } = state.pendingFocus;
-  state.pendingFocus = null;
-  const button = Array.from(document.querySelectorAll('[data-reorder-task]'))
-    .find((item) => item.dataset.reorderTask === taskId && item.dataset.reorderControl === control);
-  if (button) {
-    requestAnimationFrame(() => button.focus({ preventScroll: true }));
-  }
 }
 
 function renderList(target, collection, renderer) {
@@ -238,8 +217,8 @@ function renderTodoCard(task) {
       </div>
     </div>
     <div class="task-actions">
-      <button type="button" class="action-button reorder-button" data-action="move-up" data-id="${task.id}" data-reorder-task="${task.id}" data-reorder-control="up" aria-label="Move ${escapeHtml(task.content)} up" aria-disabled="${!canMoveUp}">↑</button>
-      <button type="button" class="action-button reorder-button" data-action="move-down" data-id="${task.id}" data-reorder-task="${task.id}" data-reorder-control="down" aria-label="Move ${escapeHtml(task.content)} down" aria-disabled="${!canMoveDown}">↓</button>
+      <button type="button" class="action-button reorder-button" data-action="move-up" data-id="${task.id}" aria-label="Move ${escapeHtml(task.content)} up" aria-disabled="${!canMoveUp}">↑</button>
+      <button type="button" class="action-button reorder-button" data-action="move-down" data-id="${task.id}" aria-label="Move ${escapeHtml(task.content)} down" aria-disabled="${!canMoveDown}">↓</button>
       <button type="button" class="action-button complete" data-action="complete" data-id="${task.id}">✓</button>
       <button type="button" class="action-button edit" data-action="edit" data-id="${task.id}">✏ Edit</button>
       <button type="button" class="action-button delete" data-action="delete" data-id="${task.id}">🗑 Delete</button>
@@ -305,7 +284,6 @@ function enableDragDrop(container) {
       event.preventDefault();
       if (state.draggedId && state.draggedId !== item.dataset.dragId) {
         state.activeTaskId = state.draggedId;
-        state.pendingFocus = { taskId: state.draggedId, control: 'up' };
         reorderByDrop(state.draggedId, item.dataset.dragId);
         saveTasks();
         render();
