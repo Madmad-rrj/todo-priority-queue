@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: todo-priority-api
+    runtime: docker
+    rootDir: TodoApi
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ConnectionStrings__DefaultConnection
+        sync: false
+      - key: Cors__AllowedOrigins__0
+        value: https://todo-priority-queue.vercel.app
