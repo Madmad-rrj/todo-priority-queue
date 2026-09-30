@@ -1,6 +1,7 @@
 const STORAGE_KEY = 'todo-stack-web-app-v1';
 const THEME_STORAGE_KEY = 'todo-stack-theme';
 const COLOR_STYLE_STORAGE_KEY = 'todo-task-color-style';
+const MIGRATION_STORAGE_KEY = 'todo-stack-api-migration-v1';
 const ELAPSED_UPDATE_INTERVAL = 60000;
 const STATUS = { TODO: 'TODO', COMPLETED: 'COMPLETED', DELETED: 'DELETED' };
 
@@ -12,7 +13,7 @@ const defaultTasks = [
 ];
 
 const state = {
-  tasks: loadTasks(),
+  tasks: [],
   currentPage: 'TODO',
   filters: { age: 'all', date: 'all', star: 'all', sort: 'priority' },
   modalMode: 'add',
@@ -108,6 +109,11 @@ organizerModal.addEventListener('click', (event) => { if (event.target === organ
 
 modalForm.addEventListener('submit', (event) => {
   event.preventDefault();
+  submitTaskForm();
+});
+
+async function submitTaskForm() {
+  try {
   const content = modalContent.value.trim();
   if (!content) return modalContent.focus();
   const task = state.modalMode === 'edit'
@@ -119,59 +125,59 @@ modalForm.addEventListener('submit', (event) => {
   const requestedPosition = parsePosition(modalPriorityOrder.value);
 
   if (state.modalMode === 'add') {
-    createTask(content, {
+    const createdTask = await createTask(content, {
       createdAt,
       isStarred: modalStarred.checked,
       priorityOrder: requestedPosition,
     });
+    state.tasks.push(createdTask);
   } else {
-    task.content = content;
-    task.createdAt = createdAt;
-    task.isStarred = modalStarred.checked;
-    const currentPosition = task.priorityOrder;
-    if (requestedPosition) insertAtPosition(task.id, requestedPosition);
-    else task.priorityOrder = currentPosition;
-    normalizeQueue();
-    saveTasks();
+    await taskApi.updateTask(task.id, {
+      content,
+      createdAt: new Date(createdAt).toISOString(),
+      priorityOrder: requestedPosition || task.priorityOrder,
+      isStarred: modalStarred.checked,
+    });
+    await refreshTasks();
   }
 
   closeTaskModal();
-  render();
-});
+    render();
+  } catch (error) {
+    showError(error.message);
+  }
+}
 
-function quickAddTask() {
+async function quickAddTask() {
   const content = quickInput.value.trim();
   if (!content) {
     quickInput.focus();
     return;
   }
 
-  createTask(content);
-  quickInput.value = '';
-  state.currentPage = 'TODO';
-  render();
-  quickInput.focus();
+  quickAddButton.disabled = true;
+  try {
+    const task = await createTask(content);
+    state.tasks.push(task);
+    quickInput.value = '';
+    state.currentPage = 'TODO';
+    render();
+    quickInput.focus();
+  } catch (error) {
+    showError(error.message);
+    quickInput.focus();
+  } finally {
+    quickAddButton.disabled = false;
+  }
 }
 
-function createTask(content, { createdAt = Date.now(), isStarred = false, priorityOrder = null } = {}) {
-  const task = {
-    id: createId(),
+async function createTask(content, { createdAt = Date.now(), isStarred = false, priorityOrder = null } = {}) {
+  return taskApi.createTask({
     content: content.trim(),
-    createdAt,
-    status: STATUS.TODO,
-    completedAt: null,
-    deletedAt: null,
-    priorityOrder: getTodoQueue().length + 1,
+    createdAt: new Date(createdAt).toISOString(),
+    priorityOrder,
     isStarred,
-  };
-
-  state.tasks.push(task);
-  if (priorityOrder) {
-    insertAtPosition(task.id, priorityOrder);
-  }
-  normalizeQueue();
-  saveTasks();
-  return task;
+  });
 }
 
 filterAge.addEventListener('change', (event) => { state.filters.age = event.target.value; render(); });
@@ -204,49 +210,50 @@ function updateFilterControls() {
   mobileFilterButton.textContent = labels.length ? `Filter: ${labels.join(', ')}` : 'Filter: All';
 }
 
-document.addEventListener('click', (event) => {
+document.addEventListener('click', async (event) => {
   const button = event.target.closest('[data-action]');
   if (!button) return;
   const task = state.tasks.find((item) => item.id === button.dataset.id);
   if (!task) return;
+  try {
   switch (button.dataset.action) {
     case 'complete':
-      task.status = STATUS.COMPLETED;
-      task.completedAt = Date.now();
-      normalizeQueue();
+      await taskApi.completeTask(task.id);
       break;
     case 'restore':
-      task.status = STATUS.TODO;
-      task.completedAt = null;
-      insertAtPosition(task.id, task.priorityOrder);
-      normalizeQueue();
+      await taskApi.restoreTask(task.id);
       break;
     case 'delete':
-      task.status = STATUS.DELETED;
-      task.deletedAt = Date.now();
-      normalizeQueue();
+      await taskApi.deleteTask(task.id);
       break;
     case 'delete-forever':
-      state.tasks = state.tasks.filter((item) => item.id !== task.id);
-      normalizeQueue();
+      await taskApi.deleteTaskForever(task.id);
       break;
     case 'edit':
       openTaskModal('edit', task.content, task);
       return;
     case 'star':
-      task.isStarred = !task.isStarred;
+      await taskApi.updateTask(task.id, {
+        content: task.content,
+        createdAt: task.createdAt,
+        priorityOrder: task.priorityOrder,
+        isStarred: !task.isStarred,
+      });
       break;
     case 'move-up':
-      moveBy(task.id, -1);
+      await taskApi.updateTaskPriority(task.id, Math.max(1, task.priorityOrder - 1));
       break;
     case 'move-down':
-      moveBy(task.id, 1);
+      await taskApi.updateTaskPriority(task.id, task.priorityOrder + 1);
       break;
     default:
       return;
   }
-  saveTasks();
+  await refreshTasks();
   render();
+  } catch (error) {
+    showError(error.message);
+  }
 });
 
 document.addEventListener('change', (event) => {
@@ -515,10 +522,13 @@ function finishPointerDrag(event) {
   if (drag.dragging && drag.targetId && drag.targetId !== drag.taskId) {
     state.activeTaskId = drag.taskId;
     state.pendingDragFocus = drag.taskId;
-    reorderByDrop(drag.taskId, drag.targetId);
-    saveTasks();
     releasePointer(drag);
-    render();
+    const targetTask = state.tasks.find((task) => task.id === drag.targetId);
+    const targetPosition = targetTask ? targetTask.priorityOrder : getTodoQueue().length;
+    taskApi.updateTaskPriority(drag.taskId, targetPosition)
+      .then(refreshTasks)
+      .then(render)
+      .catch((error) => showError(error.message));
     return;
   }
   releasePointer(drag);
@@ -539,13 +549,6 @@ function releasePointer(drag) {
 function clearDropTarget() {
   document.querySelectorAll('.drop-target').forEach((item) => item.classList.remove('drop-target'));
 }
-function reorderByDrop(draggedId, targetId) {
-  const queue = getTodoQueue().filter((task) => task.id !== draggedId);
-  const targetIndex = queue.findIndex((task) => task.id === targetId);
-  const dragged = state.tasks.find((task) => task.id === draggedId);
-  queue.splice(targetIndex < 0 ? queue.length : targetIndex, 0, dragged);
-  queue.forEach((task, index) => { task.priorityOrder = index + 1; });
-}
 function moveBy(id, delta) {
   const queue = getTodoQueue();
   const index = queue.findIndex((task) => task.id === id);
@@ -556,13 +559,16 @@ function moveBy(id, delta) {
   state.activeTaskId = id;
   return true;
 }
-function updatePosition(id, value) {
+async function updatePosition(id, value) {
   const position = parsePosition(value);
   if (!position) return;
-  insertAtPosition(id, position);
-  normalizeQueue();
-  saveTasks();
-  render();
+  try {
+    await taskApi.updateTaskPriority(id, position);
+    await refreshTasks();
+    render();
+  } catch (error) {
+    showError(error.message);
+  }
 }
 function insertAtPosition(id, requestedPosition) {
   const queue = getTodoQueue().filter((task) => task.id !== id);
@@ -619,18 +625,6 @@ function parseDateTimeLocal(value) {
   const [hour, minute] = time.split(':').map(Number);
   return new Date(year, month - 1, day, hour, minute).getTime();
 }
-function loadTasks() {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  if (!saved) return defaultTasks;
-  try {
-    const parsed = JSON.parse(saved);
-    if (Array.isArray(parsed) && parsed.length) {
-      return parsed.map((task, index) => ({ ...task, priorityOrder: Number.isInteger(task.priorityOrder) ? task.priorityOrder : Number(task.priority) || index + 1, isStarred: Boolean(task.isStarred) }));
-    }
-  } catch (error) { console.warn('Failed to parse saved tasks.', error); }
-  return defaultTasks;
-}
-function saveTasks() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.tasks)); }
 function createId() {
   if (window.crypto && window.crypto.getRandomValues) {
     const array = new Uint32Array(1);
@@ -642,5 +636,54 @@ function createId() {
 function escapeHtml(value) {
   return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
-render();
-startElapsedTimer();
+async function refreshTasks() {
+  state.tasks = await taskApi.getTasks();
+  normalizeQueue();
+}
+
+function showError(message) {
+  let errorElement = document.getElementById('api-error');
+  if (!errorElement) {
+    errorElement = document.createElement('div');
+    errorElement.id = 'api-error';
+    errorElement.className = 'api-error';
+    document.querySelector('.page-panel').prepend(errorElement);
+  }
+  errorElement.textContent = message || 'Could not complete the request.';
+}
+
+async function initializeApp() {
+  try {
+    let serverTasks = await taskApi.getTasks();
+    if (!serverTasks.length && !localStorage.getItem(MIGRATION_STORAGE_KEY)) {
+      const saved = localStorage.getItem('todo-stack-web-app-v1');
+      if (saved) {
+        try {
+          const localTasks = JSON.parse(saved);
+          if (Array.isArray(localTasks)) {
+            for (const task of localTasks) {
+              const content = String(task.content || '').trim();
+              if (!content) continue;
+              const createdAt = Number(task.createdAt) || Date.parse(task.createdAt) || Date.now();
+              await taskApi.createTask({
+                content,
+                createdAt: new Date(createdAt).toISOString(),
+                priorityOrder: Number(task.priorityOrder) || null,
+                isStarred: Boolean(task.isStarred),
+              });
+            }
+          }
+        } finally {
+          localStorage.setItem(MIGRATION_STORAGE_KEY, 'completed');
+        }
+      }
+    }
+    await refreshTasks();
+    render();
+    startElapsedTimer();
+  } catch (error) {
+    showError(`Could not load tasks. ${error.message}`);
+  }
+}
+
+initializeApp();

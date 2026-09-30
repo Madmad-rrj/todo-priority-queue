@@ -1,0 +1,5 @@
+TodoApi/bin/
+TodoApi/obj/
+.vscode/
+.env
+*.user
